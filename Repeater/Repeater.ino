@@ -29,6 +29,7 @@ uint8_t newMACAddress[] = {0x10, 0xDA, 0x43, 0x70, 0x9A, 0xDD};
 #include <lwip/napt.h>
 #include <lwip/dns.h>
 #include <dhcpserver.h>
+#include "fileSystem.h"
 
 #define NAPT 1000
 #define NAPT_PORT 10
@@ -97,6 +98,8 @@ void setNAPT(){
 }
 
 void setup() {
+  
+  EEPROM.begin(512);
   Serial.begin(115200);
   Serial.printf("\n\nNAPT Range extender\n");
   Serial.printf("Heap on start: %d\n", ESP.getFreeHeap());
@@ -121,4 +124,3 @@ void setup() {
 
 void loop() {
 }
-

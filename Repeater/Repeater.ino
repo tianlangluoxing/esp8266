@@ -13,14 +13,27 @@
 
    板砖者: 落星
    时间: 2021-8-26
+
+   新增: web配置页面
+   时间：2021-9-13
+   当使用手机或者电脑连接到"luoxing-AP"热点之后，
+   在浏览器地址栏输入"172, 217, 28, 254"即可打开web配置页面
+   在web配置页面可配置
+   1、连接的热点名称（必填，非特殊字符，长度 <= 31字节 && 长度 >= 1字节）
+   2、连接的热点密码（必填，非特殊字符，长度 <= 31字节 && 长度 >= 8字节）
+   3、拓展的热点名称（必填，非特殊字符，长度 <= 31字节 && 长度 >= 1字节）
+   4、拓展的热点密码（必填，非特殊字符，长度 <= 31字节 && 长度 >= 8字节）
+   5、拓展热点的MAC地址（选填）（主要用于钉钉的WiFi打卡，格式10:DA:43:70:9A:DD）
+
+   web配置信息存储于EEPROM中
 */
 
 #ifndef STASSID
-#define STASSID "luoxing_2.4"
-#define STAPASS  "ABCluoxing123"
-#define APSSID "sxdmn1.com1"
-#define APPASS  "z12345678"
-uint8_t newMACAddress[] = {0x10, 0xDA, 0x43, 0x70, 0x9A, 0xDD};
+#define STASSID "luoxing-STA"
+#define STAPASS  "luoxing123"
+#define APSSID "luoxing-AP"
+#define APPASS  "luoxing123"
+//uint8_t newMACAddress[] = {0x10, 0xDA, 0x43, 0x70, 0x9A, 0xDD};
 #endif
 
 #include <ESP8266WiFi.h>
@@ -39,17 +52,41 @@ ESP8266WebServer server(80);
 /*
    配置你要连接的WiFi
 */
+bool wifiStatus = false;
+unsigned long reconnectTime = 3000;
+unsigned long lastReconnectTime = -3000;
 void setSTA(const char *ssid, const char *pass) {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print('.');
-    delay(500);
+  //  WiFi.mode(WIFI_STA);
+  unsigned long now = millis();
+  if (WiFi.status() != WL_CONNECTED && now - lastReconnectTime >= reconnectTime) {
+    lastReconnectTime = now;
+    Serial.println('WiFi disconnected, reconnecting...');
+    WiFi.begin(ssid, pass);
+    wifiStatus = false;
   }
-  Serial.printf("\nSTA: %s (dns: %s / %s)\n",
-                WiFi.localIP().toString().c_str(),
-                WiFi.dnsIP(0).toString().c_str(),
-                WiFi.dnsIP(1).toString().c_str());
+  if (!wifiStatus && WiFi.status() == WL_CONNECTED) {
+    Serial.println('WiFi connected.');
+    Serial.printf("\nSTA: %s (dns: %s / %s)\n",
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.dnsIP(0).toString().c_str(),
+                  WiFi.dnsIP(1).toString().c_str());
+  }
+}
+
+/**
+     连接WiFi
+     如果有配置WiFi
+     则从配置中获取配置信息
+*/
+void reconnectWiFi() {
+  char STA_SSIS[32] = {0};
+  char STA_PASS[32] = {0};
+  if (read_STA_SSID(STA_SSIS) > 1 && read_STA_PASS(STA_PASS)) {
+    setSTA(STA_SSIS, STA_PASS);
+  }
+  else {
+    setSTA(STASSID, STAPASS);
+  }
 }
 
 /*
@@ -153,21 +190,7 @@ void setup() {
   Serial.printf("\n\nNAPT Range extender\n");
   Serial.printf("Heap on start: %d\n", ESP.getFreeHeap());
 
-  /**
-     连接WiFi
-     如果有配置WiFi
-     则从配置中获取配置信息
-  */
-  char STA_SSIS[32] = {0};
-  char STA_PASS[32] = {0};
-  //  read_STA_SSID(STA_SSIS);
-  if (read_STA_SSID(STA_SSIS) > 1 && read_STA_PASS(STA_PASS)) {
-    setSTA(STA_SSIS, STA_PASS);
-  }
-  else {
-    setSTA(STASSID, STAPASS);
-  }
-
+  reconnectWiFi();//连接WiFi
 
   // give DNS servers to AP side
   dhcpSoftAP.dhcps_set_dns(0, WiFi.dnsIP(0));
@@ -190,7 +213,6 @@ void setup() {
     AP_flag = false;
   }
 
-
   //  uint8_t _MAC[6] = {0};
   //  String S_MAC = "de:a0:4a:79:82:1c";
   //  stringMAC2MAC(_MAC, S_MAC);
@@ -201,7 +223,6 @@ void setup() {
     setMAC((uint8_t*)MAC);
   }
 
-
   Serial.printf("Heap before: %d\n", ESP.getFreeHeap());
   if (AP_flag) {
     setNAPT(AP_SSID, AP_PASS);
@@ -209,21 +230,26 @@ void setup() {
   else {
     setNAPT(APSSID, APPASS);
   }
-
-
   Serial.printf("Heap after napt init: %d\n", ESP.getFreeHeap());
 
+  /*
+     web配置页
+  */
   server.on("/", HTTP_GET, []() {
     server.send(200, "text/html", index_html);
   });
-
+  /*
+     配置提交接口
+  */
   server.on("/config", HTTP_POST, []() {
     if (server.hasArg("ssid") && server.hasArg("pass") && server.hasArg("ap_ssid") && server.hasArg("ap_pass")) {
-      Serial.println(String(server.arg("ssid")));
-      Serial.println(String(server.arg("pass")));
-      Serial.println(String(server.arg("ap_ssid")));
-      Serial.println(String(server.arg("ap_pass")));
-      Serial.println(String(server.arg("MAC")));
+      //      Serial.println(String(server.arg("ssid")));
+      //      Serial.println(String(server.arg("pass")));
+      //      Serial.println(String(server.arg("ap_ssid")));
+      //      Serial.println(String(server.arg("ap_pass")));
+      //      Serial.println(String(server.arg("MAC")));
+
+      //保存配置信息
       save_STA_SSID((String(server.arg("ssid"))).c_str());
       save_STA_PASS((String(server.arg("pass"))).c_str());
       save_AP_SSID((String(server.arg("ap_ssid"))).c_str());
@@ -232,18 +258,6 @@ void setup() {
       String S_MAC = server.arg("MAC");
       stringMAC2MAC(_MAC, S_MAC);
       save_MAC((char*)_MAC);
-      //      save_MAC((String(server.arg("MAC"))).c_str());
-
-      //      char STA_SSIS[32] = {0};
-      //      char STA_PASS[32] = {0};
-      //      char AP_SSID[32] = {0};
-      //      char AP_PASS[32] = {0};
-      //      uint8_t MAC[6] = {0};
-      //      read_STA_SSID(STA_SSIS);
-      //      read_STA_PASS(STA_PASS);
-      //      read_AP_PASS(AP_PASS);
-      //      read_AP_PASS(AP_PASS);
-      //      read_MAC((char*)MAC);
 
       server.send(200, "application/json", "{\"data\":{\"status\":200}}");
       delay(1000);
@@ -259,4 +273,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  if (WiFi.status() != WL_CONNECTED) {
+    reconnectWiFi();
+  }
 }
